@@ -103,7 +103,7 @@ TypeScript **strict**. Tidak ada `any` tanpa komentar `// eslint-disable-next-li
 - Sebelum implementasi fitur Supabase, cek `https://supabase.com/changelog.md` untuk tag `breaking-change`, lalu rujuk docs lewat MCP `search_docs` atau halaman `.md`. Saat debugging error Supabase, baca dulu docs Monitoring & Debugging Supabase.
 - Jalankan `supabase db advisors` (CLI v2.81.3+) atau MCP `get_advisors` setelah perubahan schema, dan wajib bersih sebelum merge.
 - Query selalu `select` eksplisit kolom (lihat §3 serialization). Tidak ada `select('*')` di kode produk.
-- Semua fungsi SQL `security definer` wajib `set search_path = ''` + nama objek ter-fully-qualified (`public.members`, dst). Jangan pakai `search_path = public`: itu membuka celah function hijack. Helper tinggal di schema `private` dan `EXECUTE`-nya di-revoke dari semua role, termasuk `service_role` (SCHEMA.md §4).
+- Semua fungsi SQL `security definer` wajib `set search_path = ''` + nama objek ter-fully-qualified (`public.members`, dst). Jangan pakai `search_path = public`: itu membuka celah function hijack. Helper RLS tinggal di schema `private`, di-revoke dari `public`/`anon`/`service_role`, tetapi WAJIB di-`grant execute` ke `authenticated` karena policy dievaluasi sebagai role pemanggil. Kalau tidak, query user login error 42501 (SCHEMA.md §4).
 - Index baru → catat di SCHEMA.md §9.
 
 ## 9. Testing Gate (wajib sebelum merge)

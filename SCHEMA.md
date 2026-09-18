@@ -100,6 +100,8 @@ create index members_user_idx on members(user_id);
 create index members_group_idx on members(group_id);
 ```
 
+> **Invarian:** leader grup selalu punya baris `members` (dibuat otomatis oleh trigger `on_group_created`, §6.4). Karena itu Edge `join-accept` yang menambahkan leader wajib memakai `on conflict (group_id, user_id) do nothing`.
+
 ### 3.4 `sub_tasks`
 ```sql
 create table sub_tasks (
@@ -229,16 +231,27 @@ returns boolean language sql security definer stable set search_path = '' as $$
   );
 $$;
 
--- Cabut eksekusi langsung dari SEMUA role, termasuk service_role.
--- Alasan: Postgres memberi EXECUTE ke PUBLIC secara default untuk setiap fungsi baru.
--- Helper tetap jalan dari policy/RPC karena dieksekusi sebagai pemilik tabel/fungsi
--- (SECURITY DEFINER), bukan sebagai role pemanggil. Edge Function yang butuh validasi
--- guest membaca `public.members` langsung lewat service client, bukan memanggil helper ini.
-revoke execute on all functions in schema private from public, anon, authenticated, service_role;
+-- Helper yang dipanggil dari policy RLS WAJIB bisa di-EXECUTE oleh `authenticated`.
+-- Kalau dicabut, policy gagal dengan 42501 "permission denied for function" saat user login
+-- meng-query (terverifikasi empiris saat hardening remote). Policy dievaluasi sebagai role
+-- pemanggil, bukan pemilik tabel.
+revoke execute on all functions in schema private from public, anon, service_role;
+
+grant usage on schema private to authenticated;
+grant execute on function private.is_member(uuid) to authenticated;
+grant execute on function private.is_leader(uuid) to authenticated;
+grant execute on function private.my_member_id(uuid) to authenticated;
+
+-- `is_guest` tidak dipanggil policy (Edge membaca public.members langsung); biarkan tercabut.
+revoke execute on function private.is_guest(uuid, uuid) from public, anon, authenticated, service_role;
+
+-- Fungsi trigger tidak butuh EXECUTE untuk menyala; cabut dari semua role.
+revoke execute on function private.enforce_status_transition() from public, anon, authenticated, service_role;
+revoke execute on function private.handle_new_user() from public, anon, authenticated, service_role;
+revoke execute on function private.touch_updated_at() from public, anon, authenticated, service_role;
 
 -- PENTING: `revoke ... on all functions` hanya mengenai fungsi yang SUDAH ada saat dijalankan.
--- Ulangi revoke ini di akhir migrasi, setelah semua fungsi `private.*` dibuat
--- (enforce_status_transition, touch_updated_at, handle_new_user, dst).
+-- Jalankan blok ini setelah semua fungsi `private.*` dibuat.
 ```
 
 > Catatan keputusan ADR #6: guest read dirender di server (cookie → service client di route handler), sehingga **tidak ada policy guest di RLS**. Fungsi `private.is_guest` disimpan sebagai referensi; karena `EXECUTE`-nya di-revoke dari semua role, Edge Function melakukan validasi langsung ke `public.members` lewat service client, bukan memanggil helper ini.
@@ -403,10 +416,20 @@ Tidak ada policy client. Akses full hanya `service_role`.
 create or replace function private.enforce_status_transition()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
-  me uuid := private.my_member_id(NEW.group_id);
-  leader boolean := private.is_leader(NEW.group_id);
+  me uuid;
+  leader boolean;
 begin
-  -- assignee: hanya todo<->in_progress, kolom lain harus identik
+  -- Jalur RPC resmi (submit_proof / review_submission) sudah memvalidasi sendiri.
+  -- Bypass HARUS di paling awal: kalau tidak, cabang assignee di bawah menolak
+  -- transisi ke 'submitted' dan RPC resmi mustahil jalan (ditemukan di RLS test).
+  if coalesce(current_setting('app.allow_status_change', true), 'off') = 'on' then
+    return NEW;
+  end if;
+
+  me := private.my_member_id(NEW.group_id);
+  leader := private.is_leader(NEW.group_id);
+
+  -- assignee langsung: hanya todo<->in_progress, kolom lain harus identik
   if NEW.assignee_id = me and not leader then
     if NEW.title is distinct from OLD.title
        or NEW.description is distinct from OLD.description
@@ -420,14 +443,12 @@ begin
       raise exception 'transisi status assignee hanya todo<->in_progress; submitted via submit_proof';
     end if;
   end if;
+
   -- transisi ke submitted/done hanya lewat RPC submit_proof / review_submission
   if NEW.status in ('submitted','done') and OLD.status is distinct from NEW.status then
-    -- hanya RPC resmi yang menyetel GUC ini di transaksinya (JWT-claim check
-    -- tidak bisa dipakai: RPC dibawa JWT 'authenticated', bukan service_role)
-    if coalesce(current_setting('app.allow_status_change', true), 'off') <> 'on' then
-      raise exception 'status submitted/done hanya via fungsi resmi';
-    end if;
+    raise exception 'status submitted/done hanya via fungsi resmi';
   end if;
+
   return NEW;
 end $$;
 
@@ -477,18 +498,18 @@ begin
 
   perform set_config('app.allow_status_change', 'on', true);
   update public.submissions set
-    decision = case when p_approve then 'approved' else 'rejected' end,
+    decision = case when p_approve then 'approved'::public.submission_decision else 'rejected'::public.submission_decision end,
     leader_note = p_note, decided_by = (select auth.uid()), decided_at = now()
   where id = p_submission;
 
   update public.sub_tasks set
-    status = case when p_approve then 'done' else 'in_progress' end,
+    status = case when p_approve then 'done'::public.sub_task_status else 'in_progress'::public.sub_task_status end,
     updated_at = now()
   where id = st.id;
 
   insert into public.notifications (user_id, type, payload)
     select pm.user_id,
-           case when p_approve then 'task_approved' else 'task_rejected' end,
+           case when p_approve then 'task_approved'::public.notification_type else 'task_rejected'::public.notification_type end,
            jsonb_build_object('sub_task_id', st.id, 'title', st.title, 'note', p_note)
     from public.members pm where pm.id = st.assignee_id and pm.user_id is not null;
 end $$;
@@ -503,6 +524,28 @@ begin new.updated_at = now(); return new; end $$;
 create trigger t_groups_touch before update on groups for each row execute function private.touch_updated_at();
 create trigger t_profiles_touch before update on profiles for each row execute function private.touch_updated_at();
 create trigger t_subtasks_touch before update on sub_tasks for each row execute function private.touch_updated_at();
+```
+
+### 6.4 Leader otomatis jadi anggota
+
+Policy berbasis `private.is_member` (grup, roster, sub_tasks, komentar) akan menyembunyikan grup dari leader yang belum punya baris `members`. Trigger ini menjamin invarian "leader selalu anggota" dan menghapus urutan operasi yang rapuh di aplikasi.
+
+```sql
+create or replace function private.handle_new_group()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.members (group_id, user_id)
+  values (NEW.id, NEW.leader_id)
+  on conflict (group_id, user_id) do nothing;
+  return NEW;
+end $$;
+
+create trigger on_group_created
+  after insert on public.groups
+  for each row execute function private.handle_new_group();
+
+-- Trigger tidak butuh EXECUTE; cabut dari role API.
+revoke execute on function private.handle_new_group() from public, anon, authenticated, service_role;
 ```
 
 ---

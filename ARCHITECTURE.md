@@ -114,6 +114,7 @@ User → GET /auth/google (Supa signInWithOAuth) → Google consent
 
 - Session: refresh token Supabase, cookie httpOnly SameSite=Lax; umur ≥ 30 hari (refresh berjalan).
 - Refresh sesi dijalankan di `proxy.ts` (Next 16 menggantikan `middleware.ts`; runtime `nodejs`, bukan `edge`).
+- Saat leader membuat grup, trigger `on_group_created` otomatis menambahkan baris `members` untuk leader (SCHEMA.md §6.4). Karena itu Edge `join-accept` wajib memakai `on conflict (group_id, user_id) do nothing`.
 - Tidak ada email/password, tidak ada provider lain.
 
 ### 3.2 Guest (nama saja) — "Join tanpa ribet"
