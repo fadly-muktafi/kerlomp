@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
-/* Kerlomp design tokens — sumber kebenaran: DESIGN.md §2-§4.
+/* Kerlomp design tokens - sumber kebenaran: DESIGN.md §2-§4.
    Dilarang hex literal di komponen; selalu lewat token ini. */
+
+/* Dark mode berbasis class `.dark` (toggle manual + prefers-color-scheme di layout). */
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --bg: #fafaf7;
@@ -16,11 +19,12 @@
   --warn: #c77400;
   --danger: #d64545;
 
-  --radius-sm: 8px;
-  --radius-md: 14px;
-
-  --shadow-card: 0 1px 2px oklch(0% 0 0 / 6%), 0 4px 16px oklch(0% 0 0 / 6%);
-  --shadow-pop: 0 2px 4px oklch(0% 0 0 / 8%), 0 12px 32px oklch(0% 0 0 / 10%);
+  /* Z-index scale tetap (DESIGN.md §4): base 0, sticky 40, dropdown 50, modal 60, toast 70. */
+  --z-base: 0;
+  --z-sticky: 40;
+  --z-dropdown: 50;
+  --z-modal: 60;
+  --z-toast: 70;
 }
 
 .dark {
@@ -53,6 +57,35 @@
   --font-sans: var(--font-plus-jakarta), system-ui, sans-serif;
   --font-display: var(--font-space-grotesk), var(--font-sans);
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Radius lock: input/chip 8px, card/tombol 14px, badge status = full. */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+
+  /* Bayangan tinted dari --ink, tidak pernah hitam murni (DESIGN.md §4). */
+  --shadow-card: 0 1px 2px oklch(0% 0 0 / 6%), 0 4px 16px oklch(0% 0 0 / 6%);
+  --shadow-pop: 0 2px 4px oklch(0% 0 0 / 8%), 0 12px 32px oklch(0% 0 0 / 10%);
+
+  /* Skala tipe (DESIGN.md §3.2). */
+  --text-display: 3.5rem;
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.03em;
+  --text-h1: 2.25rem;
+  --text-h1--line-height: 1.05;
+  --text-h1--letter-spacing: -0.02em;
+  --text-h2: 1.75rem;
+  --text-h2--line-height: 1.1;
+  --text-h2--letter-spacing: -0.015em;
+  --text-h3: 1.25rem;
+  --text-h3--line-height: 1.2;
+  --text-h3--letter-spacing: -0.01em;
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.5;
+  --text-micro: 0.75rem;
+  --text-micro--line-height: 1.4;
+  --text-micro--letter-spacing: 0.12em;
 }
 
 body {

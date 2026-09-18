@@ -10,7 +10,7 @@ export default function Home() {
       </p>
       <a
         href="/login"
-        className="inline-flex h-11 items-center rounded-[14px] bg-accent px-6 font-medium text-accent-ink transition-transform duration-150 active:scale-[0.98]"
+        className="inline-flex h-11 items-center rounded-md bg-accent px-6 font-medium text-accent-ink transition-transform duration-150 active:scale-[0.98]"
       >
         Coba Gratis
       </a>

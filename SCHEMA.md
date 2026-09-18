@@ -219,7 +219,8 @@ returns uuid language sql security definer stable set search_path = '' as $$
   limit 1;
 $$;
 
--- validasi guest cookie (dipakai Edge Functions/service role, bukan dari client)
+-- validasi guest cookie (referensi saja: EXECUTE di-revoke total, dan Edge Function
+-- membaca public.members langsung lewat service client; tidak dipanggil dari client)
 create or replace function private.is_guest(p_group uuid, p_token uuid)
 returns boolean language sql security definer stable set search_path = '' as $$
   select exists (
@@ -228,13 +229,19 @@ returns boolean language sql security definer stable set search_path = '' as $$
   );
 $$;
 
--- cabut eksekusi langsung dari semua role yang ter-expose API
-revoke execute on all functions in schema private from public, anon, authenticated;
--- (service_role tetap bisa: owner melewati revoke; policy yang memanggil tetap jalan karena
---  policy dieksekusi oleh pemilik tabel, bukan role pemanggil)
+-- Cabut eksekusi langsung dari SEMUA role, termasuk service_role.
+-- Alasan: Postgres memberi EXECUTE ke PUBLIC secara default untuk setiap fungsi baru.
+-- Helper tetap jalan dari policy/RPC karena dieksekusi sebagai pemilik tabel/fungsi
+-- (SECURITY DEFINER), bukan sebagai role pemanggil. Edge Function yang butuh validasi
+-- guest membaca `public.members` langsung lewat service client, bukan memanggil helper ini.
+revoke execute on all functions in schema private from public, anon, authenticated, service_role;
+
+-- PENTING: `revoke ... on all functions` hanya mengenai fungsi yang SUDAH ada saat dijalankan.
+-- Ulangi revoke ini di akhir migrasi, setelah semua fungsi `private.*` dibuat
+-- (enforce_status_transition, touch_updated_at, handle_new_user, dst).
 ```
 
-> Catatan keputusan ADR #6: guest read dirender di server (cookie → service client di route handler), sehingga **tidak ada policy guest di RLS**. Fungsi `private.is_guest` dibuat hanya untuk validasi di Edge Functions, bukan untuk dipanggil dari client anon.
+> Catatan keputusan ADR #6: guest read dirender di server (cookie → service client di route handler), sehingga **tidak ada policy guest di RLS**. Fungsi `private.is_guest` disimpan sebagai referensi; karena `EXECUTE`-nya di-revoke dari semua role, Edge Function melakukan validasi langsung ke `public.members` lewat service client, bukan memanggil helper ini.
 
 ---
 
@@ -393,7 +400,7 @@ Tidak ada policy client. Akses full hanya `service_role`.
 
 ### 6.1 Status-transition guard
 ```sql
-create or replace function enforce_status_transition()
+create or replace function private.enforce_status_transition()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
   me uuid := private.my_member_id(NEW.group_id);
@@ -410,7 +417,7 @@ begin
     end if;
     if not ((OLD.status = 'todo'        and NEW.status in ('todo','in_progress'))
          or (OLD.status = 'in_progress' and NEW.status in ('todo','in_progress'))) then
-      raise exception 'transisi status assignee hanya todo<->in_progress; submitted via submit-task';
+      raise exception 'transisi status assignee hanya todo<->in_progress; submitted via submit_proof';
     end if;
   end if;
   -- transisi ke submitted/done hanya lewat RPC submit_proof / review_submission
@@ -426,14 +433,14 @@ end $$;
 
 create trigger sub_tasks_guard
   before update on sub_tasks
-  for each row execute function enforce_status_transition();
+  for each row execute function private.enforce_status_transition();
 ```
 
 ### 6.2 RPC resmi (dipanggil server route / edge)
 
 ```sql
 -- assigne menyerahkan bukti + pindah ke submitted (atomik)
-create or replace function submit_proof(p_sub_task uuid, p_note text, p_files jsonb default '[]'::jsonb)
+create or replace function public.submit_proof(p_sub_task uuid, p_note text, p_files jsonb default '[]'::jsonb)
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare
   st public.sub_tasks;
@@ -456,7 +463,7 @@ begin
 end $$;
 
 -- leader approve/reject (atomik + notifikasi)
-create or replace function review_submission(p_submission uuid, p_approve boolean, p_note text default null)
+create or replace function public.review_submission(p_submission uuid, p_approve boolean, p_note text default null)
 returns void language plpgsql security definer set search_path = '' as $$
 declare
   s public.submissions; st public.sub_tasks;
@@ -471,7 +478,7 @@ begin
   perform set_config('app.allow_status_change', 'on', true);
   update public.submissions set
     decision = case when p_approve then 'approved' else 'rejected' end,
-    leader_note = p_note, decided_by = auth.uid(), decided_at = now()
+    leader_note = p_note, decided_by = (select auth.uid()), decided_at = now()
   where id = p_submission;
 
   update public.sub_tasks set
@@ -489,13 +496,13 @@ end $$;
 
 ### 6.3 `updated_at` otomatis
 ```sql
-create or replace function touch_updated_at()
-returns trigger language plpgsql as $$
+create or replace function private.touch_updated_at()
+returns trigger language plpgsql security definer set search_path = '' as $$
 begin new.updated_at = now(); return new; end $$;
 
-create trigger t_groups_touch before update on groups for each row execute function touch_updated_at();
-create trigger t_profiles_touch before update on profiles for each row execute function touch_updated_at();
-create trigger t_subtasks_touch before update on sub_tasks for each row execute function touch_updated_at();
+create trigger t_groups_touch before update on groups for each row execute function private.touch_updated_at();
+create trigger t_profiles_touch before update on profiles for each row execute function private.touch_updated_at();
+create trigger t_subtasks_touch before update on sub_tasks for each row execute function private.touch_updated_at();
 ```
 
 ---
@@ -509,6 +516,7 @@ insert into storage.buckets (id, name, public) values ('proofs', 'proofs', false
 **Kebijakan akses (storage.objects):**
 - **Insert:** user login, path wajib `<group_id>/<sub_task_id>/<uuid>.<ext>`, dan user adalah assignee atau leader task tersebut. Ukuran ≤ 10MB ditegakkan juga di app route; di sini ditegakkan MIME allowlist lewat metadata.
 - **Select:** hanya via `createSignedUrl` oleh server (bucket non-public → tanpa policy select client; signed URL ditanda-tangani service role, expiry 3600s).
+- **Update:** assignee pemilik task atau leader, khusus mengganti file bukti (upsert). Upsert butuh INSERT + SELECT + UPDATE sekaligus, bukan INSERT saja.
 - **Delete:** assignee pemilik task atau leader (untuk ganti bukti sebelum resubmit).
 - Upload flow: client → `POST /api/proofs/sign-upload` → server validasi (MIME whitelist: jpeg/png/webp/pdf/docx/pptx; magic bytes dicek post-upload) → `createSignedUploadUrl` → client PUT langsung ke storage.
 

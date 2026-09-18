@@ -50,13 +50,16 @@
 
 ```
 kerlomp/
+├── proxy.ts                      # Next 16: refresh sesi Supabase (pengganti middleware.ts, runtime nodejs)
+├── next.config.ts                # optimizePackageImports, reactCompiler, images.remotePatterns
 ├── app/
 │   ├── (marketing)/              # Landing, halaman statis (SEO)
 │   │   ├── page.tsx              # Hero, fitur, FAQ — server-rendered
 │   │   └── layout.tsx
 │   ├── (auth)/
-│   │   ├── login/page.tsx        # Satu tombol "Lanjut dengan Google"
-│   │   └── callback/route.ts     # OAuth redirect → post-auth router
+│   │   └── login/page.tsx        # Satu tombol "Lanjut dengan Google" (URL: /login)
+│   ├── auth/
+│   │   └── callback/route.ts     # OAuth callback (URL: /auth/callback) → post-auth router
 │   ├── (app)/
 │   │   ├── layout.tsx            # App shell: sidebar grup, notif bell
 │   │   ├── dashboard/page.tsx    # "Tugasku" lintas grup
@@ -91,6 +94,8 @@ kerlomp/
 └── (docs root) PRD.md DESIGN.md ARCHITECTURE.md SCHEMA.md RULES.md
 ```
 
+**Konfigurasi Next.js 16 (`next.config.ts`):** `experimental.optimizePackageImports: ['@phosphor-icons/react']` (hindari barrel import cost; masih experimental di 16.3.5), `reactCompiler: true` (dev dep `babel-plugin-react-compiler`), `images.remotePatterns` untuk `lh3.googleusercontent.com` (avatar Google) dan host Storage Supabase.
+
 ---
 
 ## 3. Autentikasi & Identitas
@@ -108,6 +113,7 @@ User → GET /auth/google (Supa signInWithOAuth) → Google consent
 ```
 
 - Session: refresh token Supabase, cookie httpOnly SameSite=Lax; umur ≥ 30 hari (refresh berjalan).
+- Refresh sesi dijalankan di `proxy.ts` (Next 16 menggantikan `middleware.ts`; runtime `nodejs`, bukan `edge`).
 - Tidak ada email/password, tidak ada provider lain.
 
 ### 3.2 Guest (nama saja) — "Join tanpa ribet"
@@ -300,3 +306,6 @@ Test Progressive Web App/offline ditunda sesudah v1.1.
 | 5 | Cron 15 menit di Supabase | Simpan operasi, native dari stack | Queue eksternal (BullMQ dll) |
 | 6 | Server-render guest read | Meniadakan jalur RLS guest | RLS via header JWT guest |
 | **→ 6 butuh verifikasi saat implementasi SCHEMA.md** | detail fungsi SECURITY DEFINER akan diputuskan di SCHEMA.md sesuai hasil prototyping | | |
+| 7 | Bukti & approval masuk scope MVP (PRD Epic F) | Mencegah klaim selesai tanpa bukti; 4 status sudah dipakai SCHEMA/DESIGN | Status 3-nilai tanpa submission |
+| 8 | `proxy.ts` menggantikan `middleware.ts` | Konvensi Next 16, runtime `nodejs`; `middleware` deprecated | Tetap `middleware.ts` (edge runtime) |
+| 9 | React Compiler aktif sejak awal | Memo otomatis, re-render turun, aturan memo manual gugur | Memo manual (`memo`/`useMemo`) |

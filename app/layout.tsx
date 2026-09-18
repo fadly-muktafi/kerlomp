@@ -26,6 +26,13 @@ export const metadata: Metadata = {
     "Bikin grup, bagikan link, pecah tugas, dan pantau progres kelompokmu real-time. Tanpa grup WhatsApp yang berantakan.",
 };
 
+/**
+ * Script sinkron sebelum paint: set `.dark` dari localStorage / prefers-color-scheme.
+ * Mencegah flicker mode terang sesaat (rendering-hydration-no-flicker).
+ */
+const THEME_SCRIPT =
+  '(function(){try{var t=localStorage.getItem("kerlomp-theme");var d=window.matchMedia("(prefers-color-scheme: dark)").matches;if(t==="dark"||(t!=="light"&&d)){document.documentElement.classList.add("dark")}}catch(e){}})();';
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
@@ -33,7 +40,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${sans.variable} ${display.variable} ${mono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full font-sans">{children}</body>
+      <body className="min-h-full font-sans">
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        {children}
+      </body>
     </html>
   );
 }

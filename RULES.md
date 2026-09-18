@@ -49,6 +49,8 @@ TypeScript **strict**. Tidak ada `any` tanpa komentar `// eslint-disable-next-li
 > Detail lengkap tiap aturan: `skills/vercel-react-best-practices/rules/`. Yang wajib diingat:
 
 - **`async-parallel`** — fetch independen wajib `Promise.all`. Board grup **tidak boleh** chains grup → sub_tasks → members sequential. Reka ulang: satu RPC join atau paralel Promise.
+- **`async-cheap-condition-before-await`** — evaluasi kondisi sinkron yang murah lebih dulu; jangan `await` flag/remote bila gabungan kondisinya sudah pasti gagal.
+- **`server-no-shared-module-state`** — jangan simpan data per-request (user, grup) di variabel module-level; server render berjalan konkuren dan bisa bocor antar-request. Turunkan lewat props/return.
 - **`async-suspense-boundaries`** — bungkus section berat (misal panel komentar, leaderboard kontribusi) dalam `<Suspense>`; jangan blokir seluruh halaman.
 - **`async-defer-await`** — pindahkan await ke cabang yang benar-benar memakainya; jangan await "just in case".
 - **`server-parallel-fetching`** — strukturkan komponen agar fetch paralel by-design (leaf fetch sendiri), bukan parent fetch semua.
@@ -62,14 +64,15 @@ TypeScript **strict**. Tidak ada `any` tanpa komentar `// eslint-disable-next-li
 - **No barrel imports** (`index.ts` re-export massal) — import langsung ke file. Ini alasan `components/ui/` dipilah per-file.
 - **`bundle-dynamic-imports`** — komponen berat di-bawah-the-fold (e.g., picker file bukti, wizard pembuat grup) di-`next/dynamic`.
 - **`bundle-defer-third-party`** — analytics/logging dimuat setelah hydration.
-- **Bundle-conscious icons:** `@phosphor-icons/react` tree-shakable; pastikan tidak mengimpor seluruh library via wildcard.
+- **Bundle-conscious icons:** `@phosphor-icons/react` tree-shakable; pastikan tidak mengimpor seluruh library via wildcard; set `optimizePackageImports` di `next.config.ts`.
+- **`bundle-analyzable-paths`** — import dinamis dan path file harus literal atau lewat peta eksplisit, bukan dirakit dari variabel, agar bundler tidak melebarkan trace.
 
 ## 5. Client Side & Realtime (Skill: `client-*`, `rerender-*`)
 
 - **`client-swr-dedup`** — kalau ada fetch client-side (jarang, prefer RSC), pakai SWR/React Query dengan dedup & fingerprint stabil.
 - **`rerender-move-effect-to-event`** — logic user-interaction masuk ke event handler, bukan effect.
 - **`rerender-derived-state-no-effect`** — turunan nilai (misal: `isAllDone = tasks.every(...)`) di-render, jangan di-`useEffect`-kan.
-- **`rerender-functional-setstate`** / **`useLatest`** — callback yang dipassing ke subscriber realtime harus stabil; simpan handler ke ref, bukan dependency panjang.
+- **`rerender-functional-setstate`** / **`advanced-use-latest`** / **`useEffectEvent`** — callback yang dipassing ke subscriber realtime harus stabil. React 19.2 menyediakan `useEffectEvent`; jangan masukkan fungsi itu ke dependency array, cukup nilai reaktifnya.
 - **`rerender-no-inline-components`** — dilarang mendefinisikan komponen di dalam komponen.
 - **`rendering-content-visibility`** — daftar subtask > 50 item: pakai `content-visibility: auto` (atau virtualisasi nanti bila benar-benar panjang).
 - **`rendering-conditional-render`** — pakai ternary, bukan `{x && <Thing/>}` untuk conditional yang bisa undefined.
@@ -96,8 +99,11 @@ TypeScript **strict**. Tidak ada `any` tanpa komentar `// eslint-disable-next-li
 ## 8. Database & Supabase
 
 - Migrasi DDL hanya dari `supabase/migrations/`; edit SCHEMA.md dulu, lalu generate migrasi. **Dilarang edit DB via dashboard langsung di production.**
+- Project ini memakai **imperative migrations** (bukan declarative `supabase/schemas/`). Iterasi schema pakai `execute_sql` (MCP) atau `supabase db query` lokal; saat siap commit, pakai `supabase db pull <nama> --local --yes` lalu verifikasi `supabase migration list --local`. **Jangan** pakai `apply_migration` untuk DB lokal.
+- Sebelum implementasi fitur Supabase, cek `https://supabase.com/changelog.md` untuk tag `breaking-change`, lalu rujuk docs lewat MCP `search_docs` atau halaman `.md`. Saat debugging error Supabase, baca dulu docs Monitoring & Debugging Supabase.
+- Jalankan `supabase db advisors` (CLI v2.81.3+) atau MCP `get_advisors` setelah perubahan schema, dan wajib bersih sebelum merge.
 - Query selalu `select` eksplisit kolom (lihat §3 serialization). Tidak ada `select('*')` di kode produk.
-- Semua fungsi SQL `security definer` wajib `set search_path = public` (sudah di SCHEMA.md §4 — jangan dihapus).
+- Semua fungsi SQL `security definer` wajib `set search_path = ''` + nama objek ter-fully-qualified (`public.members`, dst). Jangan pakai `search_path = public`: itu membuka celah function hijack. Helper tinggal di schema `private` dan `EXECUTE`-nya di-revoke dari semua role, termasuk `service_role` (SCHEMA.md §4).
 - Index baru → catat di SCHEMA.md §9.
 
 ## 9. Testing Gate (wajib sebelum merge)
@@ -139,7 +145,7 @@ Tidak ada commit langsung ke `main`. Semua lewat PR.
 | Client (TINGGI-MENENGAH) | `client-swr-dedup`, `client-event-listeners`, `client-passive-event-listeners` | Realtime provider, list scroll |
 | Re-render (MENENGAH) | `rerender-derived-state-no-effect`, `rerender-functional-setstate`, `rerender-no-inline-components`, `rerender-move-effect-to-event`, `advanced-use-latest` | Form, filter, subscriber |
 | Rendering (MENENGAH) | `rendering-content-visibility`, `rendering-conditional-render`, `rendering-hydration-suppress-warning` | List panjang, conditional UI |
-| JS (MENENGAH-RENDAH) | `js-index-maps`, `js-combine-iterations`, `js-early-exit` | Data processing kontribusi, watermark |
+| JS (MENENGAH-RENDAH) | `js-index-maps`, `js-combine-iterations`, `js-early-exit`, `js-tosorted-immutable`, `js-flatmap-filter` | Data processing kontribusi, watermark |
 | Advanced (RENDAH) | `advanced-init-once`, `advanced-use-latest` | Provider boot, callback stabil |
 
 > Detail & contoh tiap rule: folder `rules/` di skill *vercel-react-best-practices*. Saat implementasi, kutip `rule-id` di komentar untuk jejak audit.

@@ -99,10 +99,22 @@ Kerlomp adalah web app tracker tugas kelompok: seorang leader membuat grup, memb
 - ✅ Reminder terkirim H-1 (18:00) dan H-0 (08:00) untuk task dengan status ≠ Selesai.
 - ✅ Delivery rate ≥ 95%; gagal kirim dicatat ke log dan bisa dilihat di panel debug (dev-only).
 
+#### Epic F — Bukti & Approval (penyelesaian tugas)
+
+**F1.** Sebagai assignee, saya menyerahkan bukti penyelesaian agar leader menilai berdasarkan bukti, bukan sekadar centang.
+- ✅ Status `submitted` ("Menunggu Review") hanya tercapai lewat RPC `submit_proof`; task harus berstatus `in_progress` lebih dulu.
+- ✅ Bukti = catatan teks minimal 10 karakter + maksimal 3 file (jpeg/png/webp/pdf/docx/pptx, maks 10MB per file).
+- ✅ File disimpan privat di bucket `proofs`, dibaca lewat signed URL berumur ≤ 60 menit.
+
+**F2.** Sebagai leader, saya menyetujui atau menolak bukti agar kualitas terjaga.
+- ✅ Approve menandai task `done`; reject mengembalikan task ke `in_progress` dengan alasan wajib (minimal 3 karakter).
+- ✅ Riwayat submission bersifat immutable (tidak bisa dihapus) dan keputusan memicu notifikasi in-app ke assignee.
+- ✅ Hanya leader grup yang boleh approve/reject; setiap transisi status `submitted`/`done` hanya lewat RPC resmi.
+
 ### 2.3 Non-Goals (dilindungi dari scope creep)
 
 - ❌ Kanban drag-and-drop antar-kolom (status pakai 1 tombol, bukan board).
-- ❌ File upload / attachment.
+- ❌ Attachment umum di luar file bukti (file bukti submission dibatasi maks 3 file per penyerahan).
 - ❌ Chat global per grup (hanya komentar per sub-task).
 - ❌ Integrasi LMS/aplikasi kampus.
 - ❌ Notifikasi push native (mobile app tidak dibuat).
@@ -127,7 +139,8 @@ Tidak ada fitur AI pada MVP maupun roadmap yang direncanakan saat ini. (Kandidat
 [Supabase]
  ├─ Auth (Google OAuth, PKCE)
  ├─ Postgres + Row Level Security (RLS)
- ├─ Realtime (postgres_changes: sub_tasks, comments, members, notifications)
+ ├─ Realtime (postgres_changes: sub_tasks, submissions, comments, members, notifications)
+ ├─ Storage (bucket privat `proofs` untuk file bukti)
  └─ Scheduled Edge Function (Supabase Cron) → reminder queue
                                                   │
                                                   ▼
@@ -143,12 +156,14 @@ Tidak ada fitur AI pada MVP maupun roadmap yang direncanakan saat ini. (Kandidat
 
 | Tabel | Peran |
 |---|---|
-| `profiles` | id (FK auth.users), display_name, avatar_url, wa_number, wa_opt_in |
+| `profiles` | id (FK auth.users), display_name, avatar_url, wa_number_encrypted (pgcrypto), wa_opt_in |
 | `groups` | id, name, description, deadline, leader_id, invite_token, created_at |
-| `members` | group_id, user_id (nullable), guest_name, guest_token, joined_at (PK komposit) |
-| `sub_tasks` | id, group_id, title, description, assignee_id, status (`todo`/`in_progress`/`done`), deadline |
-| `comments` | id, sub_task_id, author_id, body, created_at |
+| `members` | id, group_id, user_id (nullable), guest_name, guest_token, joined_at; unique `(group_id, user_id)` |
+| `sub_tasks` | id, group_id, title, description, assignee_id (→ `members.id`), status (`todo`/`in_progress`/`submitted`/`done`), deadline |
+| `submissions` | id, sub_task_id, member_id, note, files (jsonb), decision (`pending`/`approved`/`rejected`), leader_note, decided_by, decided_at |
+| `comments` | id, sub_task_id, author_member_id, body, created_at |
 | `notifications` | id, user_id, type, payload, read_at, created_at |
+| `reminder_log` | sub_task_id, reminder_window (`h1`/`h0`), channel, sent_at, provider, status, attempt (idempotensi cron) |
 
 ### 4.3 Integration Points
 
@@ -158,6 +173,7 @@ Tidak ada fitur AI pada MVP maupun roadmap yang direncanakan saat ini. (Kandidat
 | **Supabase Postgres + RLS** | Database & otorisasi | RLS ketat di bawah |
 | **Supabase Realtime** | Sinkronisasi status/komentar/notifikasi | Channel per `group_id` + per user untuk notifikasi |
 | **Supabase Cron + Edge Functions** | Penjadwal reminder | Intervals 15 menit |
+| **Supabase Storage (bucket `proofs`)** | File bukti penyelesaian | Bucket privat; upload dan baca lewat signed URL, maks 3 file ≤ 10MB per submission, expiry ≤ 60 menit |
 | **Meta WhatsApp Cloud API** *(pilihan utama)* | Reminder WhatsApp | Resmi & stabil; dipakai **jika tier gratis mencukupi** volume reminder; dikenakan env secret |
 | **OpenWA** *(fallback)* | Reminder WhatsApp | Library OSS (`open-wa/wa-automate-node`) self-hosted via sesi WhatsApp nomor milik kita; dipakai kalau Cloud API berbayar. Harus anti-ban: pacing pesan (jeda acak 3–8 detik), maks 2 reminder/user/hari, auto-pause jika terdeteksi anomali |
 
@@ -167,7 +183,7 @@ Tidak ada fitur AI pada MVP maupun roadmap yang direncanakan saat ini. (Kandidat
   - User hanya bisa membaca grup di mana ia tercatat di `members` — entah sebagai akun login, atau sebagai guest via Edge Function read-only keyed pada `guest_token` cookie (guest tidak pernah mendapat role `authenticated` Supabase).
   - Hanya `assignee` **yang sudah login** yang bisa mengubah `sub_tasks.status`; guest hanya read; hanya `leader` yang bisa mengubah assignee/judul/hapus.
   - Claim flow berjalan dalam Edge Function transaksional: verifikasi cookie guest → set `user_id` → kalau `user_id` target sudah ada di `members` grup itu, abort.
-  - Komentar: siapa pun di grup bisa baca; hanya penulis yang bisa hapus; insert dibatasi `author_id = auth.uid()`.
+  - Komentar: siapa pun di grup bisa baca; hanya penulis yang bisa hapus; insert dibatasi `author_member_id = (select private.my_member_id(group_id))`.
   - Join via invite: Edge Function ber-verify token lalu insert ke `members` (client tidak menulis `members` langsung).
 - **Privasi:** nomor WA disimpan terenkripsi at-rest (Postgres pgcrypto / kolom rahasia), tidak pernah diekspos ke anggota lain; opt-in eksplisit + tombol opt-out satu klik.
 - **Compliance:** untargeted belum perlu regulasi berat, tapi nomor telepon = PII → kebijakan retensi dan penghapusan akun (cascade delete) wajib ada sebelum rilis publik.
@@ -180,7 +196,7 @@ Tidak ada fitur AI pada MVP maupun roadmap yang direncanakan saat ini. (Kandidat
 
 | Fase | Isi | Gate kualitas |
 |---|---|---|
-| **MVP** | Auth Google, grup + invite link, sub-task CRUD + assign, update status 1-tap, progress bar + kontribusi (Realtime), RLS lengkap | KPI #1, #3, #6 tercapai di dev build |
+| **MVP** | Auth Google, grup + invite link, sub-task CRUD + assign, update status 1-tap, submit bukti + approve/reject leader (Epic F), progress bar + kontribusi (Realtime), RLS lengkap | KPI #1, #3, #6 tercapai di dev build |
 | **v1.1** | Komentar real-time, dashboard "Tugasku", notifikasi in-app H-1/H-0 | Coverage test RLS ≥ 80% tabel kritikal |
 | **v1.2** | Reminder WhatsApp (Cloud API *atau* OpenWA sesuai hasil uji biaya), opt-in/out nomor WA, log delivery | KPI #4; uji failure (gateway down/ban → retry + fallback in-app saja) |
 | **v2.0** | Audit UI/UX, polish performa, halaman publik/SEO untuk akuisisi organik, case study portofolio | KPI #2, #5 diukur dari pengguna nyata |

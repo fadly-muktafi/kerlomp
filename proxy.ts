@@ -1,23 +1,25 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { clientEnv } from "@/lib/env/client";
 
 /**
- * Refresh session Supabase di setiap request (pattern resmi @supabase/ssr).
- * Bukan gate auth — proteksi route dilakukan di layout/page server-side.
+ * Refresh sesi Supabase di setiap request (pola resmi @supabase/ssr).
+ * Next.js 16: `middleware.ts` diganti `proxy.ts`, runtime nodejs (bukan edge).
+ * Bukan gate auth - proteksi route dilakukan di layout/page server-side.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    clientEnv.NEXT_PUBLIC_SUPABASE_URL,
+    clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
           response = NextResponse.next({ request });
