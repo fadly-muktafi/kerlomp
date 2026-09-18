@@ -250,7 +250,7 @@ export interface WASender {
 
 ```
 NEXT_PUBLIC_SUPABASE_URL          # public, aman
-NEXT_PUBLIC_SUPABASE_ANON_KEY     # public, aman (RLS yang melindungi)
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY  # public, aman (RLS yang melindungi; format sb_publishable_...)
 SUPABASE_SERVICE_ROLE_KEY         # HANYA di server/edge — dilarang impor client
 GOOGLE_OAUTH_CLIENT_ID/SECRET     # via dashboard Supabase, bukan env app
 WA_PROVIDER                       # meta | openwa

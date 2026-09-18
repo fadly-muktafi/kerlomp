@@ -1,20 +1,31 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Space_Grotesk, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const sans = Plus_Jakarta_Sans({
+/**
+ * Font di-self-host via next/font/local (DESIGN.md §3.1).
+ * Alasan: dev/build tidak boleh bergantung jaringan/proxy ke fonts.googleapis.com.
+ * Semua variable font, subset latin (cukup untuk Bahasa Indonesia).
+ */
+const sans = localFont({
+  src: "./fonts/plus-jakarta-sans-latin.woff2",
   variable: "--font-plus-jakarta",
-  subsets: ["latin"],
+  display: "swap",
+  fallback: ["system-ui", "sans-serif"],
 });
 
-const display = Space_Grotesk({
+const display = localFont({
+  src: "./fonts/space-grotesk-latin.woff2",
   variable: "--font-space-grotesk",
-  subsets: ["latin"],
+  display: "swap",
+  fallback: ["system-ui", "sans-serif"],
 });
 
-const mono = Geist_Mono({
+const mono = localFont({
+  src: "./fonts/geist-mono-latin.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: "swap",
+  fallback: ["ui-monospace", "monospace"],
 });
 
 export const metadata: Metadata = {

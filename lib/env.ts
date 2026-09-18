@@ -3,11 +3,11 @@ import { z } from "zod";
 
 /**
  * Validasi env saat boot server (RULES.md §1.5, ARCHITECTURE.md §7).
- * WA vars opsional — fitur WA dimatikan graceful kalau tidak lengkap.
+ * WA vars opsional - fitur WA dimatikan graceful kalau tidak lengkap.
  */
 const serverEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   WA_PROVIDER: z.enum(["meta", "openwa"]).optional(),
   META_WA_TOKEN: z.string().optional(),
