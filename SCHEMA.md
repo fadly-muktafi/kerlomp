@@ -100,7 +100,7 @@ create index members_user_idx on members(user_id);
 create index members_group_idx on members(group_id);
 ```
 
-> **Invarian:** leader grup selalu punya baris `members` (dibuat otomatis oleh trigger `on_group_created`, §6.4). Karena itu Edge `join-accept` yang menambahkan leader wajib memakai `on conflict (group_id, user_id) do nothing`.
+> **Invarian:** leader grup selalu punya baris `members` (dibuat otomatis oleh trigger `on_group_created`, §6.4). Karena itu route handler `/api/join` yang menambahkan leader wajib memakai `on conflict (group_id, user_id) do nothing`.
 
 ### 3.4 `sub_tasks`
 ```sql
@@ -221,7 +221,7 @@ returns uuid language sql security definer stable set search_path = '' as $$
   limit 1;
 $$;
 
--- validasi guest cookie (referensi saja: EXECUTE di-revoke total, dan Edge Function
+-- validasi guest cookie (referensi saja: EXECUTE di-revoke total, dan server
 -- membaca public.members langsung lewat service client; tidak dipanggil dari client)
 create or replace function private.is_guest(p_group uuid, p_token uuid)
 returns boolean language sql security definer stable set search_path = '' as $$
@@ -242,7 +242,7 @@ grant execute on function private.is_member(uuid) to authenticated;
 grant execute on function private.is_leader(uuid) to authenticated;
 grant execute on function private.my_member_id(uuid) to authenticated;
 
--- `is_guest` tidak dipanggil policy (Edge membaca public.members langsung); biarkan tercabut.
+-- `is_guest` tidak dipanggil policy (server membaca public.members langsung); biarkan tercabut.
 revoke execute on function private.is_guest(uuid, uuid) from public, anon, authenticated, service_role;
 
 -- Fungsi trigger tidak butuh EXECUTE untuk menyala; cabut dari semua role.
@@ -254,7 +254,7 @@ revoke execute on function private.touch_updated_at() from public, anon, authent
 -- Jalankan blok ini setelah semua fungsi `private.*` dibuat.
 ```
 
-> Catatan keputusan ADR #6: guest read dirender di server (cookie → service client di route handler), sehingga **tidak ada policy guest di RLS**. Fungsi `private.is_guest` disimpan sebagai referensi; karena `EXECUTE`-nya di-revoke dari semua role, Edge Function melakukan validasi langsung ke `public.members` lewat service client, bukan memanggil helper ini.
+> Catatan keputusan ADR #6: guest read dirender di server (cookie → service client di route handler), sehingga **tidak ada policy guest di RLS**. Fungsi `private.is_guest` disimpan sebagai referensi; karena `EXECUTE`-nya di-revoke dari semua role, server melakukan validasi langsung ke `public.members` lewat service client, bukan memanggil helper ini.
 
 ---
 
@@ -270,6 +270,8 @@ alter table comments      enable row level security;
 alter table notifications enable row level security;
 alter table reminder_log  enable row level security;  -- tidak ada policy client: service-only
 ```
+
+> Semua policy di bawah dijalankan dengan klausa `to authenticated` dan helper RLS di-grant ke `authenticated` (migrasi `0002_hardening.sql`). `anon` tidak punya akses tabel sama sekali.
 
 ### 5.1 profiles
 ```sql
@@ -291,8 +293,11 @@ create policy "profiles: update milik sendiri"
 
 ### 5.2 groups
 ```sql
+-- leader disertakan: PostgREST INSERT ... RETURNING mengevaluasi SELECT policy pada
+-- baris baru, sementara baris `members` leader baru dibuat AFTER trigger (migrasi 0006).
 create policy "groups: anggota membaca grupnya"
-  on groups for select using ((select private.is_member(id)));
+  on groups for select to authenticated
+  using ((select private.is_member(id)) or leader_id = (select auth.uid()));
 
 create policy "groups: siapa pun yang login bisa membuat grup, jadi leader"
   on groups for insert with check (leader_id = (select auth.uid()));
@@ -310,7 +315,7 @@ create policy "groups: hanya leader hapus"
 create policy "members: anggota baca roster grupnya"
   on members for select using ((select private.is_member(group_id)));
 
--- insert hanya via Edge Functions (join-accept / guest-session / guest-claim) pakai service role.
+-- insert hanya via route handler server (/api/join dan claim) pakai service role.
 -- client biasa TIDAK punya policy insert.
 
 create policy "members: leader bisa kick; user bisa keluar sendiri"

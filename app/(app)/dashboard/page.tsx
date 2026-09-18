@@ -1,28 +1,24 @@
 import type { Metadata } from "next";
-import { getCurrentProfile } from "@/lib/auth/dal";
-import { Button } from "@/components/ui/button";
-import { signOut } from "@/lib/auth/actions";
+import { getMyGroups } from "@/lib/data/groups";
+import { CreateGroupForm } from "@/components/features/groups/create-group-form";
+import { GroupList } from "@/components/features/groups/group-list";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
-  const profile = await getCurrentProfile();
+  const groups = await getMyGroups();
 
   return (
-    <main className="mx-auto flex min-h-[100dvh] max-w-3xl flex-col gap-6 px-4 py-8">
-      <header className="flex items-center justify-between gap-4">
-        <h1 className="font-display text-h2 text-ink">
-          Halo, {profile?.display_name ?? "kamu"}
-        </h1>
-        <form action={signOut}>
-          <Button type="submit" variant="ghost" size="sm">
-            Keluar
-          </Button>
-        </form>
-      </header>
-      <p className="text-body text-ink-muted">
-        Dashboard masih kosong. Daftar dan pembuatan grup menyusul di tahap berikutnya.
-      </p>
-    </main>
+    <div className="flex flex-col gap-10">
+      <section className="flex flex-col gap-3">
+        <h1 className="font-display text-h1 font-bold text-ink">Grup kamu</h1>
+        <GroupList groups={groups} />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="font-display text-h2 text-ink">Buat grup baru</h2>
+        <CreateGroupForm />
+      </section>
+    </div>
   );
 }

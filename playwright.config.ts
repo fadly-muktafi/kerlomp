@@ -1,4 +1,24 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+
+// Muat .env.local agar worker e2e bisa memakai Supabase admin (seeding).
+function loadEnvLocal() {
+  const path = resolve(process.cwd(), ".env.local");
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (!match) continue;
+    const [, key, raw] = match;
+    if (process.env[key] !== undefined) continue;
+    // Buang komentar inline (mis. `WA_PROVIDER=   # meta | openwa`) lalu kutip.
+    process.env[key] = raw
+      .replace(/\s+#.*$/, "")
+      .trim()
+      .replace(/^["']|["']$/g, "");
+  }
+}
+loadEnvLocal();
 
 const LOCAL_HOST = "127.0.0.1";
 const LOCAL_BYPASS = `${LOCAL_HOST},localhost`;
@@ -12,6 +32,10 @@ process.env.NO_PROXY = process.env.NO_PROXY
   ? `${process.env.NO_PROXY},${LOCAL_BYPASS}`
   : LOCAL_BYPASS;
 process.env.no_proxy = process.env.NO_PROXY;
+
+// Server dev perlu menjangkau Supabase (eksternal) lewat proxy kantor;
+// Node fetch tidak membaca HTTP_PROXY tanpa flag ini.
+process.env.NODE_USE_ENV_PROXY = process.env.NODE_USE_ENV_PROXY ?? "1";
 
 // Pakai 127.0.0.1 (bukan localhost) agar probe tidak bergantung pada resolusi DNS.
 // Konsekuensinya `next.config.ts` perlu `allowedDevOrigins: ["127.0.0.1"]`.

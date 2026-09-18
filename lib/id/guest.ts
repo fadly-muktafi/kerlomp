@@ -4,13 +4,14 @@ export const GUEST_COOKIE = "kerlomp_guest";
 export const INTENT_COOKIE = "kerlomp_intent";
 
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
+const isProd = process.env.NODE_ENV === "production";
 
-/** Simpan identitas guest (dipanggil dari guest-session flow). */
+/** Simpan identitas guest (dipanggil dari route handler guest join). */
 export async function setGuestCookie(token: string) {
   const store = await cookies();
   store.set(GUEST_COOKIE, token, {
     httpOnly: true,
-    secure: true,
+    secure: isProd,
     sameSite: "lax",
     maxAge: THIRTY_DAYS,
     path: "/",
@@ -32,7 +33,7 @@ export async function setJoinIntentCookie(inviteToken: string) {
   const store = await cookies();
   store.set(INTENT_COOKIE, `join:${inviteToken}`, {
     httpOnly: true,
-    secure: true,
+    secure: isProd,
     sameSite: "lax",
     maxAge: 60 * 15, // 15 menit cukup untuk menyelesaikan OAuth
     path: "/",

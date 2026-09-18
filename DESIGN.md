@@ -31,7 +31,7 @@ Satu aksen, netral sejuk-but-hangat, tanpa gradien AI-purple, tanpa putih polos/
 | `--ink-muted` | `#5c6068` | `#9ba0ab` | Teks sekunder (min 4.5:1) |
 | `--line` | `#e3e3dc` | `#2e313d` | Garis pembatas 1px |
 | **`--accent`** | `#65a30d` (lime-600, "Lime Kecut") | `#a3e635` (lime-400) | CTA, aktif, fokus — **SATU aksen, terkunci** |
-| `--accent-ink` | `#ffffff` | `#1a2e05` | Teks di atas aksen (putih di lime-600 = 4.5:1+; gelap di lime-400 agar kontras) |
+| `--accent-ink` | `#1a2e05` | `#1a2e05` | Teks di atas aksen. Putih di lime-600 hanya 3.08:1 (gagal AA), jadi dipakai hijau gelap di kedua mode |
 | `--ok` | `#1f9d55` | `#3fbf7f` | Status "Selesai" |
 | `--warn` | `#c77400` | `#e0a33d` | Deadline dekat |
 | `--danger` | `#d64545` | `#f06868` | Error / hapus |

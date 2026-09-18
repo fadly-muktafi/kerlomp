@@ -1,12 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { claimGuestSession } from "@/lib/groups/claim";
+import { requestOrigin } from "@/lib/http/origin";
 
 function safeNext(raw: string | null): string {
   return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dashboard";
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
+  const origin = requestOrigin(request);
   const code = searchParams.get("code");
   const next = safeNext(searchParams.get("next"));
 
@@ -14,7 +17,9 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      const claimedGroup = await claimGuestSession();
+      const destination = claimedGroup ? `/g/${claimedGroup}` : next;
+      return NextResponse.redirect(`${origin}${destination}`);
     }
   }
 

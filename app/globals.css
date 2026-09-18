@@ -14,7 +14,8 @@
   --ink-muted: #5c6068;
   --line: #e3e3dc;
   --accent: #65a30d;
-  --accent-ink: #ffffff;
+  /* Teks di atas aksen: putih gagal AA (3.08:1); pakai hijau gelap (>=4.5:1). */
+  --accent-ink: #1a2e05;
   --ok: #1f9d55;
   --warn: #c77400;
   --danger: #d64545;

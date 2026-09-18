@@ -15,6 +15,8 @@ pnpm test         # vitest (unit + RLS logic)
 pnpm test:e2e     # playwright (kritis flows)
 ```
 
+> Di balik proxy kantor, `pnpm dev` menjalankan `cross-env NODE_USE_ENV_PROXY=1` agar Node fetch server (ke Supabase) ikut proxy. Di jaringan normal flag ini tidak berdampak.
+
 TypeScript **strict**. Tidak ada `any` tanpa komentar `// eslint-disable-next-line @typescript-eslint/no-explicit-any -- alasan: ...`.
 
 ---
@@ -93,7 +95,7 @@ TypeScript **strict**. Tidak ada `any` tanpa komentar `// eslint-disable-next-li
 
 - Label di atas input, error inline di bawah (DESIGN.md §5.4). Tidak ada placeholder-as-label.
 - Server action form pakai `useFormStatus`/`useTransition` untuk loading — tombol jangan double-submit.
-- Validasi: client untuk UX (instan), server (RPC/edge) untuk kebenaran — **dua-duanya**, bukan salah satu.
+- Validasi: client untuk UX (instan), server (RPC/route handler) untuk kebenaran — **dua-duanya**, bukan salah satu.
 - File upload bukti: alur signed-URL sesuai SCHEMA.md §7; tidak ada upload langsung ke Storage dari client dengan anon key.
 
 ## 8. Database & Supabase
@@ -115,6 +117,8 @@ TypeScript **strict**. Tidak ada `any` tanpa komentar `// eslint-disable-next-li
 | RLS (SCHEMA §10) | 10 skenario kunci, semua pass |
 | E2E kritis (Playwright) | create group → join guest → login claim → submit proof → leader approve/reject → realtime terlihat di tab kedua ≤ 2s |
 | Visual/a11y | Lighthouse: Perf ≥ 90, A11y = 100 — jalankan di halaman baru/berubah |
+
+Setiap fase selesai: perbarui `MANUAL-TEST.md` (checklist langkah + hasil yang diharapkan) agar bisa diuji mandiri.
 
 Tidak ada commit langsung ke `main`. Semua lewat PR.
 

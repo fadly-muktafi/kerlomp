@@ -180,11 +180,11 @@ Tidak ada fitur AI pada MVP maupun roadmap yang direncanakan saat ini. (Kandidat
 ### 4.4 Security & Privacy
 
 - **RLS (wajib, bukan opsional):**
-  - User hanya bisa membaca grup di mana ia tercatat di `members` — entah sebagai akun login, atau sebagai guest via Edge Function read-only keyed pada `guest_token` cookie (guest tidak pernah mendapat role `authenticated` Supabase).
+  - User hanya bisa membaca grup di mana ia tercatat di `members` — entah sebagai akun login, atau sebagai guest read-only via service role server keyed pada `guest_token` cookie (guest tidak pernah mendapat role `authenticated` Supabase).
   - Hanya `assignee` **yang sudah login** yang bisa mengubah `sub_tasks.status`; guest hanya read; hanya `leader` yang bisa mengubah assignee/judul/hapus.
-  - Claim flow berjalan dalam Edge Function transaksional: verifikasi cookie guest → set `user_id` → kalau `user_id` target sudah ada di `members` grup itu, abort.
+  - Claim flow berjalan di route handler transaksional (service role): verifikasi cookie guest → set `user_id` → kalau `user_id` target sudah ada di `members` grup itu, abort.
   - Komentar: siapa pun di grup bisa baca; hanya penulis yang bisa hapus; insert dibatasi `author_member_id = (select private.my_member_id(group_id))`.
-  - Join via invite: Edge Function ber-verify token lalu insert ke `members` (client tidak menulis `members` langsung).
+  - Join via invite: route handler ber-verify token lalu insert ke `members` (client tidak menulis `members` langsung).
 - **Privasi:** nomor WA disimpan terenkripsi at-rest (Postgres pgcrypto / kolom rahasia), tidak pernah diekspos ke anggota lain; opt-in eksplisit + tombol opt-out satu klik.
 - **Compliance:** untargeted belum perlu regulasi berat, tapi nomor telepon = PII → kebijakan retensi dan penghapusan akun (cascade delete) wajib ada sebelum rilis publik.
 

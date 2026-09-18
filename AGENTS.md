@@ -20,3 +20,6 @@ Ringkasan operasional:
 - `service_role` tidak pernah masuk ke client; hanya `lib/supabase/admin.ts` di server.
 - Design token di `app/globals.css`; dilarang hex literal di komponen.
 - Perintah: `pnpm dev`, `pnpm lint` (eslint + tsc), `pnpm test`, `pnpm test:e2e`.
+- Di balik proxy kantor, `pnpm dev` memakai `cross-env NODE_USE_ENV_PROXY=1` agar Node fetch server ke Supabase ikut proxy.
+- Halaman `/g/[groupId]` di luar `(app)` karena harus bisa dibuka guest (cookie), bukan hanya user login.
+- Setiap fase selesai: perbarui `MANUAL-TEST.md` dengan checklist tes manual (RULES.md §9).

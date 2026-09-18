@@ -1,12 +1,13 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
+import { getAuthedContext } from "@/lib/supabase/authed";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Data Access Layer (Next.js authentication guide): satu tempat verifikasi sesi
- * dan pengambilan profil. `React.cache` men-dedup per-request.
- * getClaims memverifikasi token; jangan pakai getSession di server.
+ * Data Access Layer (Next.js authentication guide).
+ * `getSession`/`verifySession` memakai getClaims (verifikasi token) untuk guard halaman.
+ * Untuk query/mutasi yang tunduk RLS, pakai `getAuthedContext()`.
  */
 export const getSession = cache(async (): Promise<{ userId: string } | null> => {
   const supabase = await createClient();
@@ -25,12 +26,14 @@ export const verifySession = cache(async (): Promise<{ userId: string }> => {
 });
 
 export const getCurrentProfile = cache(async () => {
-  const { userId } = await verifySession();
-  const supabase = await createClient();
-  const { data } = await supabase
+  const ctx = await getAuthedContext();
+  if (!ctx) {
+    redirect("/login");
+  }
+  const { data } = await ctx.db
     .from("profiles")
     .select("id, display_name, avatar_url")
-    .eq("id", userId)
+    .eq("id", ctx.userId)
     .maybeSingle();
   return data;
 });

@@ -41,7 +41,7 @@
 **Prinsip arsitektur:**
 1. **Server Components untuk baca awal, Realtime untuk delta.** Tidak ada polling custom.
 2. **Semua write sensitif lewat Postgres + RLS.** Client tidak pernah pegang service key.
-3. **Guest = Edge Function keyed-by-token, bukan akun.** Guest tidak punya JWT Supabase.
+3. **Guest = token cookie, diverifikasi server (service role), bukan akun.** Guest tidak punya JWT Supabase.
 4. **Satu arah data:** Server renders → client hydrates → realtime merges. Tidak ada dua sumber kebenaran.
 
 ---
@@ -60,24 +60,27 @@ kerlomp/
 │   │   └── login/page.tsx        # Satu tombol "Lanjut dengan Google" (URL: /login)
 │   ├── auth/
 │   │   └── callback/route.ts     # OAuth callback (URL: /auth/callback) → post-auth router
-│   ├── (app)/
-│   │   ├── layout.tsx            # App shell: sidebar grup, notif bell
-│   │   ├── dashboard/page.tsx    # "Tugasku" lintas grup
-│   │   └── g/[groupId]/
-│   │       ├── page.tsx          # Board grup: progress + sub-tasks
-│   │       └── tasks/[taskId]/page.tsx  # Detail + komentar
-│   ├── join/[token]/page.tsx     # Guest join (nama only) atau redirect login
-│   └── settings/page.tsx         # Profil + nomor WA opt-in
+│   ├── (app)/                    # layout mewajibkan login
+│   │   ├── layout.tsx            # App shell: header, theme, keluar
+│   │   ├── dashboard/page.tsx    # Daftar grup + buat grup
+│   │   ── settings/page.tsx     # Profil + nomor WA opt-in
+│   ├── g/[groupId]/page.tsx      # Grup (member ATAU guest cookie); di luar (app)
+│   ├── join/[token]/page.tsx     # Form guest join (nama saja)
+│   └── api/join/route.ts         # Verifikasi invite + insert member + set cookie guest
 ├── components/                   # UI (tokens dari DESIGN.md)
 │   ├── ui/                       # primitives: Button, Input, Badge, Card
 │   ├── realtime/                 # providers & hooks
 │   │   └── realtime-provider.tsx # "use client", satu root channel manager
 │   └── features/                 # task-row, progress-bar, comment-list, dll
 ├── lib/
+│   ├── auth/                     # dal.ts (verifySession), actions.ts (signIn/signOut)
+│   ├── data/                     # query server (groups, dst) + DTO
+│   ├── groups/                   # actions.ts (create/regenerate), claim.ts
+│   ├── validation/               # skema zod
 │   ├── supabase/
 │   │   ├── server.ts             # createServerClient (cookies)
 │   │   ├── client.ts             # browser client
-│   │   └── admin.ts              # service-role (hanya di route/edge, tidak diimport client)
+│   │   └── admin.ts              # service-role (hanya route handler/action server)
 │   ├── wa/
 │   │   ├── sender.ts             # interface WASender
 │   │   ├── meta-cloud.ts         # impl: Meta WhatsApp Cloud API
@@ -86,10 +89,7 @@ kerlomp/
 ├── supabase/
 │   ├── migrations/               # SQL DDL + RLS (mirror SCHEMA.md)
 │   └── functions/
-│       ├── join-accept/          # verify invite token, insert member
-│       ├── guest-session/        # mint cookie http-only guest
-│       ├── guest-claim/          # merge guest → auth.users
-│       └── remind-tick/          # cron target, enqueue + send reminders
+│       └── remind-tick/          # cron target (v1.2); join/guest/claim kini route handler
 ├── tests/                        # Playwright (E2E kritikal) + vitest (RLS rules)
 └── (docs root) PRD.md DESIGN.md ARCHITECTURE.md SCHEMA.md RULES.md
 ```
@@ -108,37 +108,37 @@ User → GET /auth/google (Supa signInWithOAuth) → Google consent
     → exchangeCodeForSession(code) (PKCE, cookie session)
     → upsert profiles (id, display_name dari metadata Google, avatar_url)
     → redirect sesuai konteks:
-        - bawa cookie `kerlomp_intent=join:<token>` → POST Edge join-accept → /g/<group>
+        - ada intent join (link /join/<token>) → route handler /api/join → /g/<group>
         - default → /dashboard
 ```
 
 - Session: refresh token Supabase, cookie httpOnly SameSite=Lax; umur ≥ 30 hari (refresh berjalan).
 - Refresh sesi dijalankan di `proxy.ts` (Next 16 menggantikan `middleware.ts`; runtime `nodejs`, bukan `edge`).
-- Saat leader membuat grup, trigger `on_group_created` otomatis menambahkan baris `members` untuk leader (SCHEMA.md §6.4). Karena itu Edge `join-accept` wajib memakai `on conflict (group_id, user_id) do nothing`.
+- Saat leader membuat grup, trigger `on_group_created` otomatis menambahkan baris `members` untuk leader (SCHEMA.md §6.4). Karena itu route handler `/api/join` wajib memakai `on conflict (group_id, user_id) do nothing`.
 - Tidak ada email/password, tidak ada provider lain.
 
 ### 3.2 Guest (nama saja) — "Join tanpa ribet"
 
 ```
 GET /join/<invite_token>
- ├─ Sudah login? → Edge join-accept → anggota → redirect /g/<group>
+ ├─ Sudah login? → route handler /api/join → anggota → redirect /g/<group>
  └─ Belum login:
      ├─ tampilkan form satu input (nama)  [halaman /join]
-     └─ submit → Edge guest-session:
+     └─ submit → route handler /api/join:
            • verifikasi invite_token masih valid & grup ada
            • buat members row: user_id=NULL, guest_name=<nama>, guest_token=uuid
            • set cookie `kerlomp_guest=<token>; HttpOnly; Sec; SameSite=Lax; Max-Age=30d`
            • redirect /g/<group>  (read-only)
 ```
 
-**Izinkan guest:** `SELECT` rows grup sendiri via Edge read-only (lihat §5.2) atau proxy read. Guest **tidak bisa** insert/update apapun di DB langsung.
+**Izinkan guest:** `SELECT` rows grup sendiri via service role di server (ADR #6). Guest **tidak bisa** insert/update apapun di DB langsung.
 
 ### 3.3 Claim flow (guest → akun)
 
-Trigger: guest menekan aksi interaktif (update status / komentar) → prompt "Masuk Google dulu yuk" → redirect `/login?next=/claim&intent=join:<token>`:
+Trigger: guest menekan aksi interaktif (update status / komentar) → prompt "Masuk Google dulu yuk" → redirect `/login?next=/g/<group>`:
 
 ```
-OAuth sukses → Edge guest-claim (transaksi):
+OAuth sukses → claim di /auth/callback (transaksi, service role):
   1. baca cookie kerlomp_guest → cari members row (guest_token, user_id IS NULL)
   2. pastikan auth.uid() belum ada di members grup itu (kalau ada → tolak: "akun ini sudah di grup")
   3. UPDATE members SET user_id=auth.uid(), guest_token=NULL
@@ -196,7 +196,7 @@ event: postgres_changes, filter sesuai; payload id → refetch-or-merge
 ### 5.1 Prinsip
 - **RLS ON di semua tabel.** Tidak ada `using (true)`.
 - Role client: `authenticated` (akun Google). Guest tidak authenticated.
-- `service_role` hanya hidup di Edge Functions / route handlers server — tidak pernah di-bundle ke client (guard: `server-only` package).
+- `service_role` hanya hidup di route handler / server action — tidak pernah di-bundle ke client (guard: `server-only` package).
 
 ### 5.2 Matrix izin
 
@@ -251,7 +251,7 @@ export interface WASender {
 ```
 NEXT_PUBLIC_SUPABASE_URL          # public, aman
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY  # public, aman (RLS yang melindungi; format sb_publishable_...)
-SUPABASE_SERVICE_ROLE_KEY         # HANYA di server/edge — dilarang impor client
+SUPABASE_SERVICE_ROLE_KEY         # HANYA di server — dilarang impor client
 GOOGLE_OAUTH_CLIENT_ID/SECRET     # via dashboard Supabase, bukan env app
 WA_PROVIDER                       # meta | openwa
 META_WA_TOKEN / META_WA_PHONE_ID  # jika meta
@@ -310,3 +310,5 @@ Test Progressive Web App/offline ditunda sesudah v1.1.
 | 7 | Bukti & approval masuk scope MVP (PRD Epic F) | Mencegah klaim selesai tanpa bukti; 4 status sudah dipakai SCHEMA/DESIGN | Status 3-nilai tanpa submission |
 | 8 | `proxy.ts` menggantikan `middleware.ts` | Konvensi Next 16, runtime `nodejs`; `middleware` deprecated | Tetap `middleware.ts` (edge runtime) |
 | 9 | React Compiler aktif sejak awal | Memo otomatis, re-render turun, aturan memo manual gugur | Memo manual (`memo`/`useMemo`) |
+| 10 | Join/guest/claim via Next route handler + service role | Tanpa deploy Edge, konsisten dengan ADR #6 (guest read server-side) | Supabase Edge Functions |
+| 11 | `/g/[groupId]` di luar layout `(app)` | Guest harus bisa baca grup tanpa login | Paksa login lalu claim dulu |
