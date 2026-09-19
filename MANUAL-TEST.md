@@ -94,7 +94,14 @@ Catatan arsitektur realtime:
   lalu refetch via `/api/comments` (migrasi 0008/0009). Perubahan dari sumber non-klien
   (mis. admin/cron) tidak memicu sinyal untuk guest.
 
-## Fase 3e - Verifikasi akhir
+## v1.1b - Dashboard "Tugasku"
+
+- [x] Dashboard punya seksi "Tugasku" di atas "Grup kamu".
+- [x] Sub-task yang ter-assign ke kamu (lintas grup) tampil, urut deadline terdekat;
+      tugas tanpa deadline di bawah.
+- [x] Tiap baris: judul (tautan ke detail), nama grup, chip deadline, chip status.
+- [x] Tugas "Selesai" tetap tampil; kosong -> pesan "Belum ada tugas yang ditugaskan ke kamu."
+- [x] Tugasku render server (tanpa realtime); perubahan status terlihat setelah navigasi/refresh.
 
 **Otomatis (sudah dijalankan)**
 - [x] `pnpm lint` (eslint + tsc) hijau.
