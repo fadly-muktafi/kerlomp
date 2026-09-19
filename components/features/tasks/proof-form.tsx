@@ -4,6 +4,7 @@ import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { submitProof } from "@/lib/groups/proof-actions";
+import { useGroupRealtime } from "@/components/realtime/realtime-provider";
 import { Button } from "@/components/ui/button";
 import { MAX_PROOF_FILES } from "@/lib/validation/proof";
 
@@ -17,6 +18,7 @@ export function ProofForm({
   subTaskId: string;
 }) {
   const router = useRouter();
+  const { broadcastChange } = useGroupRealtime();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -82,6 +84,7 @@ export function ProofForm({
       }
 
       form.reset();
+      broadcastChange("tasks");
       router.refresh();
     });
   }

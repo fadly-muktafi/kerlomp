@@ -72,6 +72,28 @@ Catatan: status "Selesai" baru tercapai lewat submit bukti (3d). Di 3c toggle ha
 
 Catatan: file bukti tersimpan privat di bucket `proofs`; dibaca hanya lewat signed URL berumur 1 jam.
 
+## v1.1a - Komentar real-time
+
+- [x] Detail tugas punya seksi "Diskusi": daftar komentar dengan nama penulis (dan "(tamu)" bila guest).
+- [x] Member: form "Tambah komentar" tampil; kirim komentar (maks 2000) -> komentar langsung muncul
+      (optimistic) dan tersimpan (refresh tetap ada).
+- [x] Realtime: dua jendela login anggota sama, buka detail tugas yang sama -> komentar yang dikirim
+      jendela A muncul di jendela B dalam <= 2 detik tanpa refresh.
+- [x] Realtime hapus: komentar yang dihapus hilang di jendela lain tanpa refresh.
+- [x] Realtime guest: guest (tanpa login) melihat komentar muncul dan hilang secara realtime,
+      lewat sinyal broadcast dari member yang beraksi + refetch via API.
+- [x] Hapus komentar milik sendiri (dan leader bisa hapus komentar siapa pun) -> hilang realtime.
+- [x] Guest: seksi Diskusi read-only, tanpa form; komentar tetap terbaca.
+- [x] Komentar kosong ditolak dengan pesan; komentar bukan anggota grup ditolak.
+
+Catatan arsitektur realtime:
+- Member = postgres_changes (butuh JWT; token sesi dipasang SEBELUM join channel, kalau tidak
+  channel masuk sebagai anon dan event tidak pernah dikirim).
+- Event DELETE/UPDATE butuh `REPLICA IDENTITY FULL` (migrasi 0007).
+- Guest = sinyal broadcast "data changed" dari member yang beraksi (via channel yang sama),
+  lalu refetch via `/api/comments` (migrasi 0008/0009). Perubahan dari sumber non-klien
+  (mis. admin/cron) tidak memicu sinyal untuk guest.
+
 ## Fase 3e - Verifikasi akhir
 
 **Otomatis (sudah dijalankan)**

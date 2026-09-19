@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Check, Trash } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
@@ -28,8 +28,9 @@ export function TaskRow({
   isLeader: boolean;
   viewerMemberId: string | null;
 }) {
-  const { patchTask } = useGroupRealtime();
+  const { patchTask, broadcastChange } = useGroupRealtime();
   const [confirming, setConfirming] = useState(false);
+  const [pending, startTransition] = useTransition();
 
   const assignee = members.find((member) => member.id === task.assigneeId);
   const isDone = task.status === "done";
@@ -52,7 +53,41 @@ export function TaskRow({
 
     if (error) {
       patchTask(task.id, { status: previous });
+      return;
     }
+    broadcastChange("tasks");
+  }
+
+  function onDelete(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+
+    startTransition(async () => {
+      const payload = new FormData();
+      payload.set("taskId", task.id);
+      await deleteSubTask(payload);
+
+      broadcastChange("tasks");
+      setConfirming(false);
+      form.reset();
+    });
+  }
+
+  function onReassign(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const assigneeId = String(new FormData(form).get("assigneeId") ?? "");
+    if (!assigneeId || assigneeId === task.assigneeId) return;
+
+    startTransition(async () => {
+      const payload = new FormData();
+      payload.set("taskId", task.id);
+      payload.set("assigneeId", assigneeId);
+      await reassignSubTask(payload);
+
+      patchTask(task.id, { assigneeId });
+      broadcastChange("tasks");
+    });
   }
 
   return (
@@ -103,7 +138,7 @@ export function TaskRow({
 
       {isLeader ? (
         <div className="flex items-center gap-2">
-          <form action={reassignSubTask}>
+          <form onSubmit={onReassign}>
             <input type="hidden" name="taskId" value={task.id} />
             <select
               name="assigneeId"
@@ -121,9 +156,9 @@ export function TaskRow({
           </form>
 
           {confirming ? (
-            <form action={deleteSubTask} className="flex items-center gap-1">
+            <form onSubmit={onDelete} className="flex items-center gap-1">
               <input type="hidden" name="taskId" value={task.id} />
-              <Button type="submit" variant="danger" size="sm">
+              <Button type="submit" variant="danger" size="sm" disabled={pending}>
                 Hapus
               </Button>
               <Button

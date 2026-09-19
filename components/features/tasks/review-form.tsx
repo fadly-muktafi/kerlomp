@@ -1,7 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
-import { reviewSubmission, type ProofState } from "@/lib/groups/proof-actions";
+import { useState, useTransition, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { reviewSubmission } from "@/lib/groups/proof-actions";
+import { useGroupRealtime } from "@/components/realtime/realtime-provider";
 import { Button } from "@/components/ui/button";
 
 export function ReviewForm({
@@ -11,14 +13,45 @@ export function ReviewForm({
   groupId: string;
   submissionId: string;
 }) {
-  const [state, action, pending] = useActionState<ProofState, FormData>(
-    reviewSubmission,
-    undefined,
-  );
+  const router = useRouter();
+  const { broadcastChange } = useGroupRealtime();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const decision = String(data.get("decision") ?? "");
+    const note = String(data.get("note") ?? "");
+
+    if (decision === "reject" && note.trim().length < 3) {
+      setError("Alasan reject wajib, minimal 3 karakter.");
+      return;
+    }
+
+    startTransition(async () => {
+      const payload = new FormData();
+      payload.set("groupId", groupId);
+      payload.set("submissionId", submissionId);
+      payload.set("decision", decision);
+      payload.set("note", note);
+
+      const result = await reviewSubmission(undefined, payload);
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+
+      broadcastChange("tasks");
+      form.reset();
+      router.refresh();
+    });
+  }
 
   return (
     <form
-      action={action}
+      onSubmit={onSubmit}
       className="flex flex-col gap-3 rounded-md border border-line bg-surface p-4"
     >
       <input type="hidden" name="groupId" value={groupId} />
@@ -34,9 +67,9 @@ export function ReviewForm({
           className="rounded-sm border border-line bg-surface px-3 py-2 text-body text-ink"
         />
       </label>
-      {state?.error ? (
+      {error ? (
         <p className="text-small text-danger" role="alert">
-          {state.error}
+          {error}
         </p>
       ) : null}
       <div className="flex items-center gap-2">

@@ -1,10 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
-import { createSubTask, type CreateTaskState } from "@/lib/groups/task-actions";
+import { useState, useTransition, type FormEvent } from "react";
+import { createSubTask } from "@/lib/groups/task-actions";
+import { useGroupRealtime } from "@/components/realtime/realtime-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { MemberView } from "@/lib/data/groups";
+
+type FormState = { error?: string; ok?: boolean; at?: number } | undefined;
+
+const FIELDS = ["title", "description", "assigneeId", "deadline"] as const;
 
 export function CreateTaskForm({
   groupId,
@@ -13,15 +18,38 @@ export function CreateTaskForm({
   groupId: string;
   members: MemberView[];
 }) {
-  const [state, action, pending] = useActionState<CreateTaskState, FormData>(
-    createSubTask,
-    undefined,
-  );
+  const { broadcastChange } = useGroupRealtime();
+  const [state, setState] = useState<FormState>(undefined);
+  const [pending, startTransition] = useTransition();
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+
+    startTransition(async () => {
+      const payload = new FormData();
+      payload.set("groupId", groupId);
+      for (const field of FIELDS) {
+        const value = data.get(field);
+        if (typeof value === "string") payload.set(field, value);
+      }
+
+      const result = await createSubTask(undefined, payload);
+      if (result?.error) {
+        setState({ error: result.error });
+        return;
+      }
+
+      broadcastChange("tasks");
+      setState({ ok: true, at: Date.now() });
+    });
+  }
 
   return (
     <form
       key={state?.ok ? state.at : "fresh"}
-      action={action}
+      onSubmit={onSubmit}
       className="flex flex-col gap-4 rounded-md border border-line bg-surface p-4"
     >
       <input type="hidden" name="groupId" value={groupId} />

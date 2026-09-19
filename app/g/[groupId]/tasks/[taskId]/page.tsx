@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getGroupForViewer } from "@/lib/data/groups";
+import { getTaskComments } from "@/lib/data/comments";
+import { RealtimeProvider } from "@/components/realtime/realtime-provider";
+import { TaskComments } from "@/components/features/comments/task-comments";
 import { StatusChip } from "@/components/features/tasks/status-chip";
 import { ProofForm } from "@/components/features/tasks/proof-form";
 import { ReviewForm } from "@/components/features/tasks/review-form";
@@ -30,6 +33,7 @@ export default async function TaskPage({
   const assignee = members.find((member) => member.id === task.assigneeId);
   const isAssignee = viewer.kind === "member" && viewerMemberId === task.assigneeId;
   const submission = task.submission;
+  const comments = await getTaskComments(task.id);
 
   return (
     <div className="min-h-[100dvh] bg-bg">
@@ -131,6 +135,23 @@ export default async function TaskPage({
             </Link>
           </section>
         ) : null}
+
+        <RealtimeProvider
+          groupId={group.id}
+          initialTasks={[task]}
+          subTaskId={task.id}
+          initialComments={comments}
+          live={viewer.kind === "member"}
+          broadcast={viewer.kind === "guest"}
+        >
+          <TaskComments
+            groupId={group.id}
+            subTaskId={task.id}
+            members={members}
+            canWrite={viewer.kind === "member"}
+            isLeader={isLeader}
+          />
+        </RealtimeProvider>
       </main>
     </div>
   );
